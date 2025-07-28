@@ -1,0 +1,59 @@
+# =============================================
+# MikroTik Configuration: DMZ + Secure Intranet
+# =============================================
+# Scenario:
+# - DMZ hosted on MikroTik (172.17.0.0/24)
+# - Secure intranet routed via Cisco L3 (192.168.0.0/22)
+# - Intranet can access Internet
+# - Intranet CANNOT access DMZ
+# - Both DMZ and Intranet get NATed to WAN
+# =============================================
+
+# 1. Rename Interfaces for clarity
+/interface ethernet
+set [ find default-name=ether1 ] disable-running-check=no name=WAN
+set [ find default-name=ether2 ] disable-running-check=no name=DMZ
+set [ find default-name=ether3 ] disable-running-check=no name=LAN
+
+# 2. Assign IP Addresses
+/ip address
+add address=172.17.0.1/24 interface=DMZ network=172.17.0.0
+add address=10.0.0.1/30 interface=LAN network=10.0.0.0
+
+# 3. Enable DHCP client on WAN to get Internet IP
+/ip dhcp-client
+add interface=WAN
+
+# 4. Define static route to Intranet via Cisco L3 switch
+/ip route
+add dst-address=192.168.0.0/22 gateway=10.0.0.2
+
+# 5. Create DMZ address list for future use
+/ip firewall address-list
+add address=172.17.0.0/24 list=DMZ
+
+# 6. Firewall Rules
+
+# 6.1 Block Intranet → DMZ
+/ip firewall filter
+add action=drop chain=forward comment="Block Secure Intranet to DMZ" \
+    src-address=192.168.0.0/22 dst-address=172.17.0.0/24
+
+# 6.2 Allow established/related connections
+add action=accept chain=forward connection-state=established,related
+
+# 6.3 Allow Intranet → Internet
+add action=accept chain=forward comment="Secure Intranet to Internet" \
+    src-address=192.168.0.0/22 out-interface=WAN
+
+# 7. NAT Rules (Masquerading)
+
+/ip firewall nat
+
+# 7.1 NAT Secure Intranet to WAN
+add action=masquerade chain=srcnat comment="NATing Secure Intranet to Internet" \
+    out-interface=WAN src-address=192.168.0.0/22
+
+# 7.2 NAT DMZ to WAN
+add action=masquerade chain=srcnat comment="NATing DMZ to Internet" \
+    out-interface=WAN src-address=172.17.0.0/24
